@@ -44,3 +44,88 @@ Test it: pytest tests/test_pipeline.py -k app
 #
 # What the page does NOT do: cleaning, grouping, pivoting. If you find yourself
 # writing a groupby or a pivot_table here, that logic belongs in the package.
+
+import streamlit as st
+
+from payroll import (
+    build_history,
+    hours_grid,
+    load_employees,
+    load_export,
+    missed_weeks,
+    pay_by_month,
+    summarize_employees,
+)
+
+st.title("Salt City Coffee — Quarterly Payroll Report")
+st.write(
+    "Upload the weekly payroll exports for the quarter, then filter by "
+    "department and pay dates."
+)
+
+roster = load_employees()
+uploads = st.file_uploader(
+    "Weekly payroll exports",
+    type=["csv"],
+    accept_multiple_files=True,
+    key="exports",
+)
+
+if uploads:
+    history = build_history([load_export(u) for u in uploads], roster)
+
+    # Warn about rows whose ID is not on the roster, then leave them out.
+    unmatched = history[history["department"].isna()]
+    if len(unmatched) > 0:
+        bad_ids = ", ".join(sorted(unmatched["employeeid"].astype(str).unique()))
+        st.warning(
+            f"These employee IDs are not on the roster and are left out: {bad_ids}"
+        )
+    matched = history[history["department"].notna()]
+
+    # Filters: department and a date range.
+    departments = ["All"] + sorted(matched["department"].unique())
+    department = st.selectbox("Department", departments, key="department")
+
+    first = matched["pay_date"].min().date()
+    last = matched["pay_date"].max().date()
+    dates = st.date_input(
+        "Pay dates",
+        value=(first, last),
+        min_value=first,
+        max_value=last,
+        key="dates",
+    )
+    start, end = dates if len(dates) == 2 else (dates[0], dates[0])
+
+    pay_day = matched["pay_date"].dt.date
+    selected = matched[(pay_day >= start) & (pay_day <= end)]
+    if department != "All":
+        selected = selected[selected["department"] == department]
+
+    st.subheader(f"{department} — {start} to {end}")
+
+    # Four metric cards.
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Weeks", selected["week_ending"].nunique())
+    col2.metric("Employees", selected["employee_id"].nunique())
+    col3.metric("Total hours", f"{selected['hours_worked'].sum():,.2f}")
+    col4.metric("Total gross pay", f"${selected['gross_pay'].sum():,.2f}")
+
+    # Reports, all built from the filtered history.
+    monthly = pay_by_month(selected)
+    st.bar_chart(monthly, x="month")
+
+    st.dataframe(summarize_employees(selected))
+
+    grid = hours_grid(selected)
+    st.dataframe(grid)
+    st.dataframe(missed_weeks(grid))
+
+    st.download_button(
+        "Download pay by month (CSV)",
+        monthly.to_csv(index=False),
+        file_name="pay_by_month.csv",
+        mime="text/csv",
+        key="download",
+    )
