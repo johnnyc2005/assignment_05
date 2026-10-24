@@ -33,14 +33,17 @@ def hours_grid(history: pd.DataFrame) -> pd.DataFrame:
     `NaN` — for a week they were not paid. Use `pivot_table` with
     `fill_value=0`.
     """
-    grid = history.pivot_table(
-        index=["employee_id", "display_name"],
-        columns="week_ending",
-        values="hours_worked",
-        aggfunc="sum",
-        fill_value=0,
-    ).reset_index()
-    grid.columns.name = None
+    grid = (
+        history.pivot_table(
+            index=["employee_id", "display_name"],
+            columns="week_ending",
+            values="hours_worked",
+            aggfunc="sum",
+            fill_value=0,
+        )
+        .reset_index()
+        .rename_axis(columns=None)
+    )
     return grid.sort_values("employee_id").reset_index(drop=True)
 
 
@@ -83,6 +86,5 @@ def pay_by_month(history: pd.DataFrame) -> pd.DataFrame:
         aggfunc="sum",
         fill_value=0.0,
     ).round(2)
-    monthly = monthly.reset_index()
-    monthly.columns.name = None
+    monthly = monthly.reset_index().rename_axis(columns=None)
     return monthly.sort_values("month").reset_index(drop=True)
